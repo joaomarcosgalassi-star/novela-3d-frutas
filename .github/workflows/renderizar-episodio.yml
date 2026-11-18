@@ -1,0 +1,50 @@
+name: Renderizar episodio 3D
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'blender/render_episodio.py'
+      - '.github/workflows/renderizar-episodio.yml'
+      - 'audio/legendas.srt'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  render:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalar ferramentas
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y blender ffmpeg espeak-ng
+      - name: Renderizar animação 3D
+        env:
+          OUTPUT: /tmp/episodio-base.mp4
+          FPS: '15'
+          WIDTH: '540'
+          HEIGHT: '960'
+        run: blender -b -t 2 --python blender/render_episodio.py
+      - name: Criar locução PT-BR
+        run: |
+          mkdir -p /tmp/v
+          espeak-ng -v pt-br -s 150 -w /tmp/v/n.wav "Ela só queria salvar sua mãe... mas o destino tinha outros planos."
+          espeak-ng -v pt-br+m3 -s 145 -w /tmp/v/a.wav "Você não pertence a este lugar! Não... isso é impossível!"
+          espeak-ng -v pt-br+f3 -s 148 -w /tmp/v/m.wav "Eu só preciso de uma oportunidade... Essa sou eu? Agora você vai me ouvir."
+          espeak-ng -v pt-br+m2 -s 135 -w /tmp/v/s.wav "Você ainda não sabe quem realmente é seu pai..."
+          ffmpeg -y -i /tmp/v/n.wav -i /tmp/v/a.wav -i /tmp/v/m.wav -i /tmp/v/s.wav -filter_complex "[0:a]adelay=1500|1500[a0];[1:a]adelay=8000|8000[a1];[2:a]adelay=11200|11200[a2];[3:a]adelay=55000|55000[a3];[a0][a1][a2][a3]amix=inputs=4:duration=longest:normalize=0,volume=1.7[a]" -map "[a]" -ar 48000 /tmp/voz.wav
+      - name: Finalizar MP4 vertical
+        run: |
+          ffmpeg -y -i /tmp/episodio-base.mp4 -i /tmp/voz.wav -vf "subtitles=audio/legendas.srt:force_style='FontName=Rubik,FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,Alignment=2,MarginV=105',format=yuv420p" -map 0:v:0 -map 1:a:0 -c:v libx264 -preset veryfast -crf 24 -c:a aac -b:a 160k -shortest -movflags +faststart episodio-01-completo.mp4
+          ffmpeg -y -i episodio-01-completo.mp4 -t 30 -c copy parte-1.mp4
+          ffmpeg -y -ss 30 -i episodio-01-completo.mp4 -t 30 -c copy parte-2.mp4
+          ffprobe -v error -show_entries format=duration,size -of json episodio-01-completo.mp4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: novela-3d-frutas-episodio-01
+          path: |
+            episodio-01-completo.mp4
+            parte-1.mp4
+            parte-2.mp4
+          retention-days: 30
